@@ -178,7 +178,7 @@ class StockUpdater:
             raise
 
     def smaUpdate(self):
-        """Computes rolling SMAs (1..200) with caching and error handling."""
+        """Computes rolling SMAs with caching and error handling."""
         try:
             stockSymbol = open("Stock.txt", "r").readline().strip()
 
