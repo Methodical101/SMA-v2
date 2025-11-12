@@ -1,0 +1,29 @@
+### Ultra-minimal ignores (Python + local state)
+
+# Python artifacts
+__pycache__/
+*.py[cod]
+
+# Virtual environment
+.venv/
+
+# Local environment variables
+.env*
+
+# Editor settings (optional; remove if you want to share workspace config)
+.vscode/
+.idea/
+
+# OS noise
+.DS_Store
+
+# Generated runtime/state files
+*_EvaluationLog.txt
+*_RunnerLog.txt
+*_Totals.txt
+StockData.csv
+*Index.txt
+Price*.txt
+SMA.txt
+Stock.txt
+RunnerDays.txt

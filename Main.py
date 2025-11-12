@@ -1,82 +1,126 @@
+import argparse
+import os
 import time
-import sys
 import urllib
 
 from evaluate.Evaluator import Evaluater
 
 
 class Main:
-    def start(self):
+    """Entry point for running evaluation or live runner flows.
 
-        #check for internet
+    Flags:
+        --new | --resume  (mutually exclusive, required)    Start a new session or resume existing
+        --eval | --run    (mutually exclusive, required)    Run evaluator or live runner mode
+        --stock SYMBOL    (required for --new)              Stock symbol
+        --days N          (required for --new with --run)   Number of days for live runner
+               
+        --clean           (alternative, run with --stock)   Delete <stock>_EvaluationLog.txt and <stock>_Totals.txt
+    """
+
+    def start(self) -> None:
+        """Parse CLI flags, ensure connectivity, and dispatch actions."""
+        parser = argparse.ArgumentParser(description="SMA Evaluator/Runner")
+        sessionGroup = parser.add_mutually_exclusive_group(required=True)
+        sessionGroup.add_argument("--new", action="store_true", help="Start a new session")
+        sessionGroup.add_argument("--resume", action="store_true", help="Resume an existing session")
+        sessionGroup.add_argument("--clean", dest="cleanLogs", action="store_true", help="Delete existing evaluation and totals logs for the stock")
+
+        modeGroup = parser.add_mutually_exclusive_group(required=False)
+        modeGroup.add_argument("--eval", dest="mode", action="store_const", const="eval", help="Run evaluator mode")
+        modeGroup.add_argument("--run", dest="mode", action="store_const", const="run", help="Run live runner mode")
+
+        parser.add_argument("--stock", help="Stock symbol (required for --new and --clean)")
+        parser.add_argument("--days", type=int, help="Number of days (required for --new with --run)")
+
+        args = parser.parse_args()
+
+        # if --clean: run cleaning and exit immediately
+        if args.cleanLogs:
+            if not args.stock:
+                parser.error("--stock is required when using --clean")
+            for path in (f"{args.stock}_EvaluationLog.txt", f"{args.stock}_Totals.txt"):
+                if os.path.exists(path):
+                    os.remove(path)
+            print(f"Cleaned logs for {args.stock}")
+            os._exit(1)
+
+        # validate required arguments
+        if args.new and not args.stock:
+            parser.error("--stock is required when using --new")
+
+        # make sure a mode is selected
+        if not args.mode:
+            parser.error("A mode (--eval or --run) is required.")
+
+        # connectivity check loop
         connected = False
         while not connected:
             try:
                 urllib.request.urlopen("http://google.com", timeout=5)
                 connected = True
-            except Exception as e: #if not work
-                #failure
+            except Exception:
                 print("Please connect to the internet. Retrying in 5 seconds...")
                 time.sleep(5)
 
-
-        newOrRes = sys.argv[1]
-        if newOrRes == "resume":
-            if sys.argv[2] == "eval":
-                #eval start
-                Eval = Evaluater(sys.argv[3])
-                Eval.start()
-
-            if sys.argv[2] == "run":
-                #get days from file
-                file = open("RunnerDays.txt", "r")
-                days = int(file.read())
-
-                #run start
-                # Run = Runner(sys.argv[3], days)
-                # Run.start()
-
-        else: #new
-            stock = sys.argv[3]
-
-            file = open("Stock.txt", "w")
-            file.write(stock)
+        # resume existing session
+        if args.resume:
+            # read stock symbol from Stock.txt
+            file = open("Stock.txt", "r")
+            stockSymbol = file.read().strip()
             file.close()
 
-            file1 = open(stock + "_Totals.txt", "w")
-            file1.write("")
-            file1.close()
+            # optionally clean logs before starting
+            if args.cleanLogs:
+                for path in (f"{stockSymbol}_EvaluationLog.txt", f"{stockSymbol}_Totals.txt"):
+                    if os.path.exists(path):
+                        os.remove(path)
+            
+            if args.mode == "eval":
+                evaluator = Evaluater(stockSymbol)
+                evaluator.start()
+            elif args.mode == "run":
+                file2 = open("RunnerDays.txt", "r")
+                days = int(file2.read())
+                file2.close()
+                # runner = Runner(stockSymbol, days)
+                # runner.start()
+            return
 
-            #reset indexes
-            file2 = open("PriceIndex.txt", "w")
-            file2.write("1")
-            file2.close()
-            file3 = open("DayIndex.txt", "w")
-            file3.write("1")
-            file3.close()
+        # new session setup
+        stockSymbol = args.stock
 
-            if sys.argv[2] == "eval":
-                file4 = open(stock + "_EvaluationLog.txt", "w")
-                file4.write("")
-                file4.close()
+        file3 = open("Stock.txt", "w")
+        file3.write(stockSymbol)
+        file3.close()
+        file4 = open(f"{stockSymbol}_Totals.txt", "w")
+        file4.write("")
+        file4.close()
 
-                #eval start
-                Eval = Evaluater(sys.argv[3])
-                Eval.start()
+        # reset indexes
+        for path in ("PriceIndex.txt", "DayIndex.txt"):
+            file5 = open(path, "w")
+            file5.write("1")
+            file5.close()
 
-            if sys.argv[2] == "run":
-                file5 = open(stock + "_RunnerLog.txt", "w")
-                file5.write("")
-                file5.close()
+        if args.mode == "eval":
+            file6 = open(f"{stockSymbol}_EvaluationLog.txt", "w")
+            file6.write("")
+            file6.close()
+            evaluator = Evaluater(stockSymbol)
+            evaluator.start()
+        elif args.mode == "run":
+            if args.days is None:
+                parser.error("--days is required when using --new with --run")
+            file7 = open(f"{stockSymbol}_RunnerLog.txt", "w")
+            file7.write("")
+            file7.close()
+            file8 = open("RunnerDays.txt", "w")
+            file8.write(str(args.days))
+            file8.close()
+            # runner = Runner(stockSymbol, args.days)
+            # runner.start()
 
-                file6 = open("RunnerDays.txt", "w")
-                file6.write(sys.argv[4])
-                file6.close()
-
-                #run start
-                # Run = Runner(sys.argv[3], days)
-                # Run.start()
 
 if __name__ == "__main__":
-    app = Main()
-    app.start()
+    Main().start()
