@@ -1,7 +1,7 @@
 from numpy import double
 import logging
 
-from Config import SMA_MIN, SMA_STEP, BUY_THRESHOLD, SELL_THRESHOLD, TRADING_FEE, DOWNTIME_DAYS
+from Config import SMA_MIN, SMA_STEP, BUY_THRESHOLD, SELL_THRESHOLD, TRADING_FEE, DOWNTIME_DAYS, TRADE_MODE
 
 
 class SMA:
@@ -61,20 +61,28 @@ class SMA:
 
     def smaAction(self, price, logger):
         """Active every time slice during trade time - buy/sell logic."""
-        if not self.bought:  # buying
-            if self.downtimeDays == 0:  # not in downtime
-                if self.smaMark + BUY_THRESHOLD < price:  # above SMA (by more than threshold) -> buy
-                    self.bought = True
-                    self.buyPrice = price
-                    logger.appendToEvalLog(
-                        f"SMA bot {self.days} bought at {price}. SMA: {self.smaMark}."
-                    )
-        else:  # selling
-            if self.smaMark > price + SELL_THRESHOLD:  # below SMA (by more than threshold) -> sell
-                self.downtimeDays = self.downtimeDays + DOWNTIME_DAYS
-                self.bought = False
-                self.totalProfit = self.totalProfit + ((price - self.buyPrice) - TRADING_FEE)
-                tempProfit = double(((price - self.buyPrice) - TRADING_FEE))
-                logger.appendToEvalLog(
-                    f"SMA bot {self.days} sold at {price} for a profit of {tempProfit}. SMA: {self.smaMark}."
-                )
+        # Determine buy/sell signals based on TRADE_MODE
+        if TRADE_MODE == 'mean_reversion':
+            # mean reversion: buy when price is sufficiently below SMA, sell when above
+            buy_condition = (not self.bought) and (self.downtimeDays == 0) and (price + BUY_THRESHOLD < self.smaMark)
+            sell_condition = self.bought and (price > self.smaMark + SELL_THRESHOLD)
+        else:
+            # default/momentum: buy when price sufficiently above SMA, sell when below
+            buy_condition = (not self.bought) and (self.downtimeDays == 0) and (self.smaMark + BUY_THRESHOLD < price)
+            sell_condition = self.bought and (self.smaMark > price + SELL_THRESHOLD)
+
+        if buy_condition:
+            self.bought = True
+            self.buyPrice = price
+            logger.appendToEvalLog(
+                f"SMA bot {self.days} bought at {price}. SMA: {self.smaMark}."
+            )
+        if sell_condition:
+            # perform sell
+            self.downtimeDays = self.downtimeDays + DOWNTIME_DAYS
+            self.bought = False
+            self.totalProfit = self.totalProfit + ((price - self.buyPrice) - TRADING_FEE)
+            tempProfit = double(((price - self.buyPrice) - TRADING_FEE))
+            logger.appendToEvalLog(
+                f"SMA bot {self.days} sold at {price} for a profit of {tempProfit}. SMA: {self.smaMark}."
+            )

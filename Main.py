@@ -1,4 +1,5 @@
 import argparse
+from html import parser
 import os
 import time
 import urllib.request
@@ -21,7 +22,7 @@ class Main:
         """Parse CLI flags, ensure connectivity, and dispatch actions."""
         # configure single unified log file
         logging.basicConfig(
-            filename="debug.log",
+            filename="Debug.log",
             filemode="w",
             level=logging.DEBUG,
             format="%(asctime)s %(levelname)s %(message)s"
@@ -47,6 +48,7 @@ class Main:
 
         parser.add_argument("--stock", help="Stock symbol (required for --new and --clean)")
         parser.add_argument("--days", type=int, help="Number of days (required for --new with --run)")
+        parser.add_argument("--no-analyze", dest="no_analyze", action="store_true", help="Do not run the analyzer after evaluation completes")
 
         args = parser.parse_args()
 
@@ -127,6 +129,20 @@ class Main:
                     os._exit(1)
                 evaluator = Evaluater(stockSymbol)
                 evaluator.start()
+                # After evaluation finishes, optionally run the analyzer to summarize results
+                if not args.no_analyze:
+                    try:
+                        import subprocess
+                        analyze_cmd = ["python3", "tools/Analyze.py", "--stock", stockSymbol, "--top", "10", "--csv", f"{stockSymbol}_Analysis.csv", "--compare-totals"]
+                        logging.info(f"Running analyzer: {' '.join(analyze_cmd)}")
+                        proc = subprocess.run(analyze_cmd, capture_output=True, text=True)
+                        logging.info(f"Analyzer stdout:\n{proc.stdout}")
+                        if proc.stderr:
+                            logging.error(f"Analyzer stderr:\n{proc.stderr}")
+                        print(proc.stdout)
+                    except Exception as e:
+                        print(f"Failed to run analyzer: {e}")
+                        logging.error(f"Failed to run analyzer: {e}")
             elif args.mode == "run":
                 try:
                     file2 = open("RunnerDays.txt", "r")
@@ -172,6 +188,20 @@ class Main:
                 os._exit(1)
             evaluator = Evaluater(stockSymbol)
             evaluator.start()
+            # After evaluation completes, run the analyzer unless explicitly disabled
+            if not args.no_analyze:
+                try:
+                    import subprocess
+                    analyze_cmd = ["python3", "tools/Analyze.py", "--stock", stockSymbol, "--top", "10", "--csv", f"{stockSymbol}_Analysis.csv", "--compare-totals"]
+                    logging.info(f"Running analyzer: {' '.join(analyze_cmd)}")
+                    proc = subprocess.run(analyze_cmd, capture_output=True, text=True)
+                    logging.info(f"Analyzer stdout:\n{proc.stdout}")
+                    if proc.stderr:
+                        logging.error(f"Analyzer stderr:\n{proc.stderr}")
+                    print(proc.stdout)
+                except Exception as e:
+                    print(f"Failed to run analyzer: {e}")
+                    logging.error(f"Failed to run analyzer: {e}")
         elif args.mode == "run":
             if args.days is None:
                 parser.error("--days is required when using --new with --run")
