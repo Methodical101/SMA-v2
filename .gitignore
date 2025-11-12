@@ -1,5 +1,3 @@
-### Ultra-minimal ignores (Python + local state)
-
 # Python artifacts
 __pycache__/
 *.py[cod]
@@ -27,3 +25,4 @@ Price*.txt
 SMA.txt
 Stock.txt
 RunnerDays.txt
+debug.log
