@@ -1,9 +1,8 @@
 import argparse
 import os
 import time
-import urllib
-
-from evaluate.Evaluator import Evaluater
+import urllib.request
+import logging
 
 
 class Main:
@@ -20,7 +19,23 @@ class Main:
 
     def start(self) -> None:
         """Parse CLI flags, ensure connectivity, and dispatch actions."""
-        parser = argparse.ArgumentParser(description="SMA Evaluator/Runner")
+        # configure single unified log file
+        logging.basicConfig(
+            filename="debug.log",
+            filemode="w",
+            level=logging.DEBUG,
+            format="%(asctime)s %(levelname)s %(message)s"
+        )
+        # Allow all third-party library logs (DEBUG includes INFO, WARNING, ERROR, CRITICAL)
+        logging.getLogger("yfinance").setLevel(logging.DEBUG)
+        logging.getLogger("urllib3").setLevel(logging.DEBUG)
+        logging.getLogger("pandas").setLevel(logging.DEBUG)
+        logging.getLogger("numpy").setLevel(logging.DEBUG)
+        
+        parser = argparse.ArgumentParser(
+            description="SMA Evaluator/Runner - Simulate or evaluate SMA trading strategies",
+            epilog="Example: python Main.py --new --eval --stock AAPL"
+        )
         sessionGroup = parser.add_mutually_exclusive_group(required=True)
         sessionGroup.add_argument("--new", action="store_true", help="Start a new session")
         sessionGroup.add_argument("--resume", action="store_true", help="Resume an existing session")
@@ -39,11 +54,20 @@ class Main:
         if args.cleanLogs:
             if not args.stock:
                 parser.error("--stock is required when using --clean")
+            deletedCount = 0
             for path in (f"{args.stock}_EvaluationLog.txt", f"{args.stock}_Totals.txt"):
                 if os.path.exists(path):
                     os.remove(path)
-            print(f"Cleaned logs for {args.stock}")
-            os._exit(1)
+                    deletedCount += 1
+                    print(f"Deleted {path}")
+                    logging.info(f"Deleted {path}")
+            if deletedCount == 0:
+                print(f"No existing logs found for {args.stock} (nothing to clean)")
+                logging.info(f"No existing logs found for {args.stock}")
+            else:
+                print(f"Cleaned logs for {args.stock} ({deletedCount} file(s) deleted)")
+                logging.info(f"Cleaned logs for {args.stock} ({deletedCount} file(s) deleted)")
+            os._exit(0)
 
         # validate required arguments
         if args.new and not args.stock:
@@ -55,40 +79,71 @@ class Main:
 
         # connectivity check loop
         connected = False
-        while not connected:
+        retries = 0
+        maxRetries = 5
+        while not connected and retries < maxRetries:
             try:
                 urllib.request.urlopen("http://google.com", timeout=5)
                 connected = True
-            except Exception:
-                print("Please connect to the internet. Retrying in 5 seconds...")
+                logging.info("Internet connectivity confirmed")
+            except Exception as e:
+                retries += 1
+                print(f"Please connect to the internet. Retrying in 5 seconds... (attempt {retries}/{maxRetries})")
+                logging.warning(f"No internet connection (attempt {retries}/{maxRetries}): {e}")
                 time.sleep(5)
+        
+        if not connected:
+            print("Error: Cannot connect to the internet after multiple attempts. Exiting.")
+            logging.error("Failed to connect to internet after maximum retries")
+            os._exit(1)
 
         # resume existing session
         if args.resume:
             # read stock symbol from Stock.txt
-            file = open("Stock.txt", "r")
-            stockSymbol = file.read().strip()
-            file.close()
+            try:
+                file = open("Stock.txt", "r")
+                stockSymbol = file.read().strip()
+                file.close()
+                
+                if stockSymbol == "":
+                    print("Error: Stock.txt is empty, cannot resume.")
+                    logging.error("Stock.txt is empty")
+                    os._exit(1)
+                
+                print(f"Resuming session for {stockSymbol}")
+                logging.info(f"Resuming session for {stockSymbol}")
+                
+            except FileNotFoundError:
+                print("Error: Stock.txt not found. Cannot resume session without a previous session.")
+                logging.error("Stock.txt not found")
+                os._exit(1)
 
-            # optionally clean logs before starting
-            if args.cleanLogs:
-                for path in (f"{stockSymbol}_EvaluationLog.txt", f"{stockSymbol}_Totals.txt"):
-                    if os.path.exists(path):
-                        os.remove(path)
-            
             if args.mode == "eval":
+                try:
+                    from evaluate.Evaluator import Evaluater
+                except ImportError as e:
+                    print("Required dependencies are missing. Please install packages from requirements.txt and try again.")
+                    logging.error(f"Import failed for Evaluater: {e}")
+                    os._exit(1)
                 evaluator = Evaluater(stockSymbol)
                 evaluator.start()
             elif args.mode == "run":
-                file2 = open("RunnerDays.txt", "r")
-                days = int(file2.read())
-                file2.close()
-                # runner = Runner(stockSymbol, days)
-                # runner.start()
+                try:
+                    file2 = open("RunnerDays.txt", "r")
+                    days = int(file2.read())
+                    file2.close()
+                    print(f"Runner mode not yet implemented (would run for {days} days)")
+                    logging.info(f"Runner mode requested but not implemented")
+                except FileNotFoundError:
+                    print("Error: RunnerDays.txt not found")
+                    logging.error("RunnerDays.txt not found")
+                    os._exit(1)
             return
 
         # new session setup
         stockSymbol = args.stock
+        print(f"Starting new session for {stockSymbol}")
+        logging.info(f"Starting new session for {stockSymbol}")
 
         file3 = open("Stock.txt", "w")
         file3.write(stockSymbol)
@@ -107,6 +162,14 @@ class Main:
             file6 = open(f"{stockSymbol}_EvaluationLog.txt", "w")
             file6.write("")
             file6.close()
+            print(f"Starting evaluation for {stockSymbol}")
+            logging.info(f"Starting evaluation for {stockSymbol}")
+            try:
+                from evaluate.Evaluator import Evaluater
+            except ImportError as e:
+                print("Required dependencies are missing. Please install packages from requirements.txt and try again.")
+                logging.error(f"Import failed for Evaluater: {e}")
+                os._exit(1)
             evaluator = Evaluater(stockSymbol)
             evaluator.start()
         elif args.mode == "run":
@@ -118,6 +181,8 @@ class Main:
             file8 = open("RunnerDays.txt", "w")
             file8.write(str(args.days))
             file8.close()
+            print(f"Runner mode not yet implemented (would run for {args.days} days)")
+            logging.info(f"Runner mode requested but not implemented")
             # runner = Runner(stockSymbol, args.days)
             # runner.start()
 

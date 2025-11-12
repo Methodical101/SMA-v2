@@ -24,6 +24,11 @@ class LogManager:
         file.write(message + "\n")
         file.close()
 
+    def clearTotals(self):
+        file = open(self.stock + "_Totals.txt", "w")
+        file.write("")
+        file.close()
+
     def giveEvalReport(self, days, profit):
         daysStr = str(days)
         profitStr = str(profit)
