@@ -13,9 +13,9 @@ EVAL_DAYS = 60        # Number of trading days to simulate (max 60 for 2m, min 2
 EVAL_INTRADAY_INTERVAL = "2m"  # Intraday data interval for simulation
 
 # Trading Configuration
-BUY_THRESHOLD = 1.00  # Price must be this much above SMA to buy
-SELL_THRESHOLD = 1.00 # Price must be this much below SMA to sell
-TRADING_FEE = 0.1    # Fee per trade
+BUY_THRESHOLD = 0.05  # Price must be this much above SMA to buy
+SELL_THRESHOLD = 0.05 # Price must be this much below SMA to sell
+TRADING_FEE = 0.05    # Fee per trade
 DOWNTIME_DAYS = 2     # Days to wait after selling before buying again
 
 # Logging Configuration
