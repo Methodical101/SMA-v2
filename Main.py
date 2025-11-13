@@ -57,7 +57,7 @@ class Main:
             if not args.stock:
                 parser.error("--stock is required when using --clean")
             deletedCount = 0
-            for path in (f"{args.stock}_EvaluationLog.txt", f"{args.stock}_Totals.txt"):
+            for path in (f"{args.stock}_EvaluationLog.txt", f"{args.stock}_Totals.txt", f"{args.stock}_Analysis.csv"):
                 if os.path.exists(path):
                     os.remove(path)
                     deletedCount += 1

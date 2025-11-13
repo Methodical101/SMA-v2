@@ -20,6 +20,7 @@ __pycache__/
 *_RunnerLog.txt
 *_Totals.txt
 StockData.csv
+*_Analysis.csv
 *Index.txt
 Price*.txt
 SMA.txt
