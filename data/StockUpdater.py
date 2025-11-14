@@ -145,6 +145,26 @@ class StockUpdater:
             file.close()
             raise
 
+    def get_last_valid_price(self):
+        """Return the last valid (non-NaN) close price from cached intraday data, or None.
+
+        Relies on historicalUpdate having populated self.cachedIntradayData.
+        """
+        try:
+            data = self.cachedIntradayData
+            if data is None or len(data) == 0:
+                return None
+            # Walk backward to find last non-NaN float
+            for i in range(len(data) - 1, -1, -1):
+                price = data.iloc[i]
+                if not pd.isna(price):
+                    try:
+                        return float(price)
+                    except Exception:
+                        continue
+            return None
+        except Exception:
+            return None
     def liveUpdate(self):
         """Grabs the latest 1m close price with error handling."""
         try:

@@ -15,7 +15,7 @@ EVAL_INTRADAY_INTERVAL = "2m"  # Intraday data interval for simulation
 # Trading Configuration
 BUY_THRESHOLD = 1  # Price must be this much above SMA to buy
 SELL_THRESHOLD = 1 # Price must be this much below SMA to sell
-TRADING_FEE = 0.1    # Fee per trade
+TRADING_FEE = 0.3    # Fee per trade
 DOWNTIME_DAYS = 2     # Days to wait after selling before buying again
 
 # Trading mode: 'momentum' (buy when price > SMA, sell when price < SMA)

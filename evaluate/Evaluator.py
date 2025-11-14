@@ -61,6 +61,19 @@ class Evaluater:
                 logging.error("Empty price message")
                 raise Exception("Error: No price data found.")
             if priceMessage == "DONEALL":
+                # Force-liquidate any still-open positions at the final price
+                final_price = updater.get_last_valid_price()
+                if final_price is not None:
+                    force_count = 0
+                    for sma in smaList:
+                        if sma.force_liquidate(final_price, logger):
+                            force_count += 1
+                    # Unique summary line for analysis
+                    logger.appendToEvalLog(f"Force-liquidated {force_count} positions at {final_price}")
+                    logging.info(f"Force-liquidated {force_count} positions at {final_price}")
+                else:
+                    logger.appendToEvalLog("Force sell skipped! No final price available for force liquidation")
+                    logging.warning("No final price available for force liquidation")
                 logger.appendToEvalLog("Evaluation Complete!")
                 print("Evaluation Complete!")
                 try:

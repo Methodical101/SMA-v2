@@ -54,6 +54,26 @@ class SMA:
         """Send profits so far to logger for printing."""
         logger.giveEvalReport(self.days, self.totalProfit)
 
+    def force_liquidate(self, price, logger):
+        """Force-liquidate any open position at the provided price.
+
+        Returns True if a position was closed, otherwise False.
+        Writes a unique message to the evaluation log for easy grep/analysis.
+        """
+        if self.bought:
+            profit = ((price - self.buyPrice) - TRADING_FEE)
+            self.totalProfit = self.totalProfit + profit
+            tempProfit = double(profit)
+            # Unique marker: FORCE-LIQUIDATED
+            logger.appendToEvalLog(
+                f"SMA bot {self.days} Force-Liquidated at {price} for net of {tempProfit}. SMA: {self.smaMark}."
+            )
+            # Reset state after liquidation
+            self.bought = False
+            self.buyPrice = double(0.0)
+            return True
+        return False
+
     def smaDowntimeUpdate(self):
         """Starts every day - decrement downtime counter."""
         if self.downtimeDays != 0:
