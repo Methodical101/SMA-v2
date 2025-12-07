@@ -25,6 +25,31 @@ class StockUpdater:
         self.maxRetries = 3
         self.retryDelay = 3
 
+    def _get_stock_symbol(self):
+        """Read Stock.txt preferentially from current working directory, fall back to parent directory.
+
+        This allows evaluation runs to chdir into the per-stock folder while keeping a root-level Stock.txt
+        for session management.
+        """
+        # Try current dir first
+        try:
+            with open("Stock.txt", "r") as f:
+                s = f.readline().strip()
+                if s:
+                    return s
+        except FileNotFoundError:
+            pass
+        # Fallback to parent directory
+        try:
+            parent = os.path.join("..", "Stock.txt")
+            with open(parent, "r") as f:
+                s = f.readline().strip()
+                if s:
+                    return s
+        except FileNotFoundError:
+            pass
+        raise FileNotFoundError("Stock.txt not found in current or parent directory")
+
     def fetchWithRetries(self, stockSymbol, interval, startDate, endDate):
         """Download data from yfinance with retry logic and error handling."""
         for attempt in range(self.maxRetries):
@@ -55,7 +80,7 @@ class StockUpdater:
     def historicalUpdate(self):
         """Updates intra-day price for evaluation simulation, with caching and error handling."""
         try:
-            stockSymbol = open("Stock.txt", "r").readline().strip()
+            stockSymbol = self._get_stock_symbol()
 
             file1 = open("DayIndex.txt", "r")
             dateIndexRaw = file1.readline()
@@ -168,7 +193,7 @@ class StockUpdater:
     def liveUpdate(self):
         """Grabs the latest 1m close price with error handling."""
         try:
-            stockSymbol = open("Stock.txt", "r").readline().strip()
+            stockSymbol = self._get_stock_symbol()
 
             endDate = datetime.datetime.now().strftime("%Y-%m-%d")
             startDate = (datetime.datetime.now() - datetime.timedelta(days=1)).strftime("%Y-%m-%d")
@@ -200,7 +225,7 @@ class StockUpdater:
     def smaUpdate(self):
         """Computes rolling SMAs with caching and error handling."""
         try:
-            stockSymbol = open("Stock.txt", "r").readline().strip()
+            stockSymbol = self._get_stock_symbol()
 
             maxDays = EVAL_DAYS - 1  # evaluation period (0-based)
             file1 = open("DayIndex.txt", "r")

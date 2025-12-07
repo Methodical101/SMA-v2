@@ -1,6 +1,7 @@
 import argparse
 from html import parser
 import os
+import shutil
 import time
 import urllib.request
 import logging
@@ -57,18 +58,41 @@ class Main:
             if not args.stock:
                 parser.error("--stock is required when using --clean")
             deletedCount = 0
-            for path in (f"{args.stock}_EvaluationLog.txt", f"{args.stock}_Totals.txt", f"{args.stock}_Analysis.csv"):
-                if os.path.exists(path):
-                    os.remove(path)
+            # remove the entire per-stock folder if it exists (preferred)
+            stock_dir = os.path.join(os.getcwd(), args.stock)
+            if os.path.isdir(stock_dir):
+                try:
+                    shutil.rmtree(stock_dir)
                     deletedCount += 1
-                    print(f"Deleted {path}")
-                    logging.info(f"Deleted {path}")
+                    print(f"Deleted directory {stock_dir} and all its contents")
+                    logging.info(f"Deleted directory {stock_dir} and all its contents")
+                except Exception:
+                    logging.exception(f"Failed to delete directory {stock_dir}")
+            # also check and remove legacy root-level files (if any)
+            root_candidates = [
+                f"{args.stock}_EvaluationLog.txt",
+                f"{args.stock}_Totals.txt",
+                f"{args.stock}_RunnerLog.txt",
+                f"{args.stock}_Analysis.csv",
+            ]
+            for path in root_candidates:
+                if os.path.exists(path):
+                    try:
+                        if os.path.isdir(path):
+                            shutil.rmtree(path)
+                        else:
+                            os.remove(path)
+                        deletedCount += 1
+                        print(f"Deleted {path}")
+                        logging.info(f"Deleted {path}")
+                    except Exception:
+                        logging.exception(f"Failed to delete {path}")
             if deletedCount == 0:
-                print(f"No existing logs found for {args.stock} (nothing to clean)")
-                logging.info(f"No existing logs found for {args.stock}")
+                print(f"No existing logs or folders found for {args.stock} (nothing to clean)")
+                logging.info(f"No existing logs or folders found for {args.stock}")
             else:
-                print(f"Cleaned logs for {args.stock} ({deletedCount} file(s) deleted)")
-                logging.info(f"Cleaned logs for {args.stock} ({deletedCount} file(s) deleted)")
+                print(f"Cleaned logs for {args.stock} ({deletedCount} item(s) removed)")
+                logging.info(f"Cleaned logs for {args.stock} ({deletedCount} item(s) removed)")
             os._exit(0)
 
         # validate required arguments
@@ -99,26 +123,13 @@ class Main:
             logging.error("Failed to connect to internet after maximum retries")
             os._exit(1)
 
-        # resume existing session
+        # resume existing session (require --stock when resuming now that root Stock.txt is removed)
         if args.resume:
-            # read stock symbol from Stock.txt
-            try:
-                file = open("Stock.txt", "r")
-                stockSymbol = file.read().strip()
-                file.close()
-                
-                if stockSymbol == "":
-                    print("Error: Stock.txt is empty, cannot resume.")
-                    logging.error("Stock.txt is empty")
-                    os._exit(1)
-                
-                print(f"Resuming session for {stockSymbol}")
-                logging.info(f"Resuming session for {stockSymbol}")
-                
-            except FileNotFoundError:
-                print("Error: Stock.txt not found. Cannot resume session without a previous session.")
-                logging.error("Stock.txt not found")
-                os._exit(1)
+            if not args.stock:
+                parser.error("--stock is required when using --resume (root Stock.txt has been removed)")
+            stockSymbol = args.stock
+            print(f"Resuming session for {stockSymbol}")
+            logging.info(f"Resuming session for {stockSymbol}")
 
             if args.mode == "eval":
                 try:
@@ -127,13 +138,20 @@ class Main:
                     print("Required dependencies are missing. Please install packages from requirements.txt and try again.")
                     logging.error(f"Import failed for Evaluater: {e}")
                     os._exit(1)
+                # switch into the per-stock directory so evaluation uses per-stock files
+                stock_dir = os.path.join(os.getcwd(), stockSymbol)
+                if not os.path.isdir(stock_dir):
+                    print(f"Error: Stock directory '{stock_dir}' not found. Cannot resume.")
+                    logging.error(f"Stock directory '{stock_dir}' not found for resume")
+                    os._exit(1)
+                os.chdir(stock_dir)
                 evaluator = Evaluater(stockSymbol)
                 evaluator.start()
                 # After evaluation finishes, optionally run the analyzer to summarize results
                 if not args.no_analyze:
                     try:
                         import subprocess
-                        analyze_cmd = ["python3", "tools/Analyze.py", "--stock", stockSymbol, "--top", "10", "--csv", f"{stockSymbol}_Analysis.csv", "--compare-totals"]
+                        analyze_cmd = ["python3", os.path.join("..","tools","Analyze.py"), "--stock", stockSymbol, "--top", "10", "--csv", f"{stockSymbol}_Analysis.csv", "--compare-totals"]
                         logging.info(f"Running analyzer: {' '.join(analyze_cmd)}")
                         proc = subprocess.run(analyze_cmd, capture_output=True, text=True)
                         logging.info(f"Analyzer stdout:\n{proc.stdout}")
@@ -161,21 +179,31 @@ class Main:
         print(f"Starting new session for {stockSymbol}")
         logging.info(f"Starting new session for {stockSymbol}")
 
-        file3 = open("Stock.txt", "w")
-        file3.write(stockSymbol)
-        file3.close()
-        file4 = open(f"{stockSymbol}_Totals.txt", "w")
+        # ensure per-stock directory exists and switch into it for the session
+        stock_dir = os.path.join(os.getcwd(), stockSymbol)
+        os.makedirs(stock_dir, exist_ok=True)
+
+        # write a per-stock Stock.txt inside the stock folder for per-stock state
+        try:
+            with open(os.path.join(stock_dir, "Stock.txt"), "w") as sf_local:
+                sf_local.write(stockSymbol)
+        except Exception:
+            logging.exception(f"Failed to write per-stock Stock.txt in {stock_dir}")
+
+        # create per-stock totals file inside the stock folder
+        file4 = open(os.path.join(stock_dir, f"{stockSymbol}_Totals.txt"), "w")
         file4.write("")
         file4.close()
 
-        # reset indexes
+        # reset indexes inside the stock folder
         for path in ("PriceIndex.txt", "DayIndex.txt"):
-            file5 = open(path, "w")
+            file5 = open(os.path.join(stock_dir, path), "w")
             file5.write("1")
             file5.close()
 
         if args.mode == "eval":
-            file6 = open(f"{stockSymbol}_EvaluationLog.txt", "w")
+            # create evaluation log inside stock folder and run from there
+            file6 = open(os.path.join(stock_dir, f"{stockSymbol}_EvaluationLog.txt"), "w")
             file6.write("")
             file6.close()
             print(f"Starting evaluation for {stockSymbol}")
@@ -186,15 +214,20 @@ class Main:
                 print("Required dependencies are missing. Please install packages from requirements.txt and try again.")
                 logging.error(f"Import failed for Evaluater: {e}")
                 os._exit(1)
+
+            # change into stock directory so all relative file ops are per-stock
+            os.chdir(stock_dir)
+
             evaluator = Evaluater(stockSymbol)
             evaluator.start()
+
             # After evaluation completes, run the analyzer unless explicitly disabled
             if not args.no_analyze:
                 try:
                     import subprocess
-                    analyze_cmd = ["python3", "tools/Analyze.py", "--stock", stockSymbol, "--top", "10", "--csv", f"{stockSymbol}_Analysis.csv", "--compare-totals"]
+                    analyze_cmd = ["python3", os.path.join("..", "tools", "Analyze.py"), "--stock", stockSymbol, "--top", "10", "--csv", f"{stockSymbol}_Analysis.csv", "--compare-totals"]
                     logging.info(f"Running analyzer: {' '.join(analyze_cmd)}")
-                    proc = subprocess.run(analyze_cmd, capture_output=True, text=True)
+                    proc = subprocess.run(analyze_cmd, capture_output=True, text=True, cwd=os.getcwd())
                     logging.info(f"Analyzer stdout:\n{proc.stdout}")
                     if proc.stderr:
                         logging.error(f"Analyzer stderr:\n{proc.stderr}")
@@ -205,7 +238,8 @@ class Main:
         elif args.mode == "run":
             if args.days is None:
                 parser.error("--days is required when using --new with --run")
-            file7 = open(f"{stockSymbol}_RunnerLog.txt", "w")
+            # create runner log in stock folder and store runner days in root so they persist
+            file7 = open(os.path.join(stock_dir, f"{stockSymbol}_RunnerLog.txt"), "w")
             file7.write("")
             file7.close()
             file8 = open("RunnerDays.txt", "w")

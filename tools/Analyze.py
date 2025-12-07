@@ -41,6 +41,13 @@ SELL_RE = re.compile(
     re.IGNORECASE,
 )
 
+# Match forced liquidations such as:
+#  SMA bot 61 FORCE-LIQUIDATED at 401.9010009765625 for P/L -7.804010009765625. SMA: 412.18...
+FORCE_RE = re.compile(
+    r"SMA bot\s+(?P<sma>\d+)\s+FORCE-?LIQUIDATED\s+at\s+[\d\.eE+\-]+\s+for\s+P/?L\s+(?P<profit>[\-\d\.eE+]+)\.?",
+    re.IGNORECASE,
+)
+
 
 def parse_log(path: str) -> Tuple[Dict[int, Dict[str, float]], Dict[str, float]]:
     """Parse an evaluation log file and aggregate sell trades per SMA.
@@ -59,44 +66,53 @@ def parse_log(path: str) -> Tuple[Dict[int, Dict[str, float]], Dict[str, float]]
     try:
         with open(path, 'r', encoding='utf-8') as fh:
             for line in fh:
-                # Try strict regex match first (recommended format)
-                m = SELL_RE.search(line)
-                if not m:
-                    # Not a strict match. Try permissive fallback only when the
-                    # line contains the expected phrase. This handles minor
-                    # formatting differences (extra periods, trailing characters).
-                    if 'for a profit of' in line:
+                # Prefer forced-liquidation entries (these close open positions at the end)
+                m_force = FORCE_RE.search(line)
+                if m_force:
+                    try:
+                        sma = int(m_force.group('sma'))
+                        profit_str = m_force.group('profit').strip().rstrip(' .;,')
                         try:
-                            # Get the substring after the phrase and take the
-                            # first token as the profit candidate. Strip common
-                            # trailing punctuation before conversion.
-                            parts = line.split('for a profit of', 1)[1]
-                            token = parts.strip().split()[0].rstrip('.;,')
-                            profit = float(token)
-                            # find SMA id with a small regex
-                            sma_m = re.search(r"SMA bot\s+(\d+)", line, re.IGNORECASE)
-                            if sma_m:
-                                sma = int(sma_m.group(1))
-                            else:
-                                # cannot determine SMA id — skip this line
-                                continue
-                        except Exception:
-                            # fallback failed — skip line
-                            continue
-                    else:
-                        # line doesn't contain a sell event we care about
+                            profit = float(profit_str)
+                        except ValueError:
+                            profit = float(re.sub(r"[^0-9eE+\-\.]+$", "", profit_str))
+                    except Exception:
+                        # malformed forced-liquidation line, skip
                         continue
                 else:
-                    # Strict match succeeded — extract SMA and profit safely
-                    sma = int(m.group('sma'))
-                    profit_str = m.group('profit').strip()
-                    # Remove any trailing punctuation that sometimes appears in logs
-                    profit_str = profit_str.rstrip(' .;,')
-                    try:
-                        profit = float(profit_str)
-                    except ValueError:
-                        # As a last resort, remove any non-numeric suffix and parse
-                        profit = float(re.sub(r"[^0-9eE+\-\.]+$", "", profit_str))
+                    # Try strict sell regex first
+                    m = SELL_RE.search(line)
+                    if not m:
+                        # If not a strict match, try permissive parse when the
+                        # line contains the phrase 'for a profit of'
+                        if 'for a profit of' in line:
+                            try:
+                                parts = line.split('for a profit of', 1)[1]
+                                token = parts.strip().split()[0].rstrip('.;,')
+                                profit = float(token)
+                                sma_m = re.search(r"SMA bot\s+(\d+)", line, re.IGNORECASE)
+                                if sma_m:
+                                    sma = int(sma_m.group(1))
+                                else:
+                                    # cannot determine SMA id — skip this line
+                                    continue
+                            except Exception:
+                                # fallback failed — skip line
+                                continue
+                        else:
+                            # line doesn't contain a sell event we care about
+                            continue
+                    else:
+                        # Strict match succeeded — extract SMA and profit safely
+                        try:
+                            sma = int(m.group('sma'))
+                            profit_str = m.group('profit').strip().rstrip(' .;,')
+                            try:
+                                profit = float(profit_str)
+                            except ValueError:
+                                profit = float(re.sub(r"[^0-9eE+\-\.]+$", "", profit_str))
+                        except Exception:
+                            continue
 
                 # Update aggregated counters for this SMA and overall
                 per_sma[sma]['count'] += 1
@@ -230,10 +246,28 @@ def main(argv=None):
         print(f"Error: log file not found: {path}")
         sys.exit(2)
 
+    # Prepare sorted list of SMAs by total so we can both summarize and optionally
+    # write a truncated CSV when --top is provided alongside --csv.
+    smas = sorted(per_sma.items(), key=lambda kv: kv[1]['total'])
+
     summarize(per_sma, overall, top=args.top)
 
     if args.csv:
-        write_csv(per_sma, args.csv)
+        # If --top is provided, truncate the CSV to only include the printed
+        # Top N worst and Top N best SMAs (avoids writing the full table).
+        if args.top and args.top > 0:
+            topn = args.top
+            worst = [sma for sma, _ in smas[:topn]]
+            best = [sma for sma, _ in list(reversed(smas[-topn:]))]
+            # Combine while preserving order: worst then best (remove duplicates)
+            chosen = []
+            for s in worst + best:
+                if s not in chosen:
+                    chosen.append(s)
+            filtered = {s: per_sma[s] for s in chosen if s in per_sma}
+            write_csv(filtered, args.csv)
+        else:
+            write_csv(per_sma, args.csv)
         print(f"Wrote CSV to {args.csv}")
 
     # Optionally compare to totals file

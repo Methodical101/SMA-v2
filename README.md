@@ -58,9 +58,9 @@ python Main.py --new --eval --stock AAPL
 
 ### Resuming an Evaluation
 
-Resume a previously started evaluation:
+Resume a previously started evaluation (now requires the stock symbol):
 ```bash
-python Main.py --resume --eval
+python Main.py --resume --eval --stock TSLA
 ```
 
 ### Cleaning Up Logs
@@ -103,15 +103,43 @@ LOG_INDEX_INTERVAL = 100    # Log index info every N ticks to debug.log
 EVALLOG_INTERVAL = 100      # Write to EvaluationLog.txt every N ticks
 ```
 
-## Output Files
+## Output files and layout
 
-The tool generates several output files during evaluation:
+When you start a new evaluation the tool creates a per-stock folder named after the symbol and places most state and output files there. The project root keeps `Debug.log` so all debug records are consolidated in one place.
 
-- **`{STOCK}_EvaluationLog.txt`**: Detailed timeline of all buy/sell actions
-- **`{STOCK}_Totals.txt`**: Daily profit totals for each SMA strategy
-- **`debug.log`**: Detailed debug information (cleared on each run)
-- **`StockData.csv`**: Cached intraday price data
-- **State Files**: `Stock.txt`, `DayIndex.txt`, `PriceIndex.txt`, `SMA.txt`, `Price.txt` (auto-managed)
+- `./<STOCK>/<STOCK>_EvaluationLog.txt`: Detailed timeline of all buy/sell and forced-liquidation actions
+- `./<STOCK>/<STOCK>_Totals.txt`: Daily profit totals for each SMA strategy
+- `./<STOCK>/Stock.txt`: Per-stock pointer and local state files (DayIndex.txt, PriceIndex.txt, SMA.txt, Price.txt)
+- `Debug.log` (root): Detailed debug information (rotated/cleared per run by `Main.py`)
+- `StockData.csv` (per-stock folder): Cached intraday price data used for simulation
+
+Note: `--clean` will remove artifacts from the per-stock folder (and legacy root-level files if present).
+
+## Analyzer examples and CSV truncation
+
+The built-in analyzer (`tools/Analyze.py`) inspects the evaluation log and summarizes realized sells per SMA. Here are common usages and notes about CSV output truncation when using `--top`:
+
+- Analyze a specific log file and write a full CSV:
+```bash
+python3 tools/Analyze.py --log-file EH/EH_EvaluationLog.txt --csv EH/EH_Analysis_full.csv --compare-totals --totals-file EH/EH_Totals.txt
+```
+
+- Analyze from inside a per-stock folder (mirrors how `Main.py` invokes it):
+```bash
+cd TSLA
+python3 ../tools/Analyze.py --stock TSLA --csv TSLA_Analysis.csv --compare-totals
+```
+
+- Quick summary only (no CSV):
+```bash
+python3 tools/Analyze.py --log-file EH/EH_EvaluationLog.txt --top 3
+```
+
+CSV truncation behavior:
+- When you pass `--top N` together with `--csv PATH`, the analyzer will write a truncated CSV that contains only the printed Top N worst SMAs followed by the Top N best SMAs (duplicates removed). This keeps the CSV focused on the most relevant strategies when you only want a short list.
+- If you want the full per-SMA table, omit `--top` and provide only `--csv PATH` to write the complete results.
+
+If you'd prefer a different truncation behaviour (for example "Top N overall" rather than worst+best, or preserving the printed order in the CSV), tell me and I can add a flag to control that.
 
 ## How It Works
 
@@ -123,6 +151,8 @@ The tool generates several output files during evaluation:
    - Tracks profit/loss for each strategy
    - Applies trading fees and downtime penalties
 4. **Reporting**: Generates daily totals and evaluation logs showing performance of each SMA period
+
+The analyzer (`tools/Analyze.py`) now also recognizes forced-liquidation log entries (marked by `FORCE-LIQUIDATED`) and includes those final forced closes in the per-SMA aggregates.
 
 ## Trading Logic
 
@@ -151,10 +181,10 @@ python Main.py --new --eval --stock TSLA
 # Day 2
 # ...
 
-# 4. Review results
-cat TSLA_Totals.txt        # See final profits for each SMA
-cat TSLA_EvaluationLog.txt # See detailed trade history
-cat debug.log              # See technical details
+# 4. Review results (files are inside the per-stock folder)
+cat TSLA/TSLA_Totals.txt        # See final profits for each SMA
+cat TSLA/TSLA_EvaluationLog.txt # See detailed trade history (includes FORCE-LIQUIDATED lines)
+cat Debug.log                    # See technical/debug details (root)
 ```
 
 ## Project Structure

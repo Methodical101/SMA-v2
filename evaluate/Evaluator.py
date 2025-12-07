@@ -1,5 +1,6 @@
 from numpy import double
 import logging
+import os
 
 from Config import SMA_MIN, SMA_MAX, SMA_STEP, EVALLOG_INTERVAL
 from data import LogManager, StockUpdater
@@ -77,7 +78,10 @@ class Evaluater:
                 logger.appendToEvalLog("Evaluation Complete!")
                 print("Evaluation Complete!")
                 try:
-                    with open("Stock.txt", "w") as sf:
+                    # Stock.txt is kept at project root; evaluator runs inside the per-stock folder,
+                    # so clear the root Stock.txt by writing to parent directory's Stock.txt
+                    parent_stock_file = os.path.join("..", "Stock.txt")
+                    with open(parent_stock_file, "w") as sf:
                         sf.write("")
                 except Exception as cerr:
                     logging.error(f"Failed clearing Stock.txt on DONEALL: {cerr}")
