@@ -31,19 +31,19 @@ class SMA:
             readFile = open("SMA.txt", "r")
             # Calculate which line this SMA is on (0-indexed)
             lineIndex = (self.days - SMA_MIN) // SMA_STEP
-            
+
             # Read to the correct line
             for _ in range(lineIndex):
                 readFile.readline()
 
             smaValue = readFile.readline().strip()
             readFile.close()
-            
+
             if smaValue == "" or smaValue == "NaN":
                 logging.warning(f"Invalid SMA value for SMA {self.days}: '{smaValue}'")
                 # Keep previous value
                 return
-            
+
             self.smaMark = double(smaValue)
 
         except Exception as e:
@@ -64,11 +64,9 @@ class SMA:
             profit = ((price - self.buyPrice) - TRADING_FEE)
             self.totalProfit = self.totalProfit + profit
             tempProfit = double(profit)
-            # Unique marker: FORCE-LIQUIDATED
             logger.appendToEvalLog(
-                f"SMA bot {self.days} Force-Liquidated at {price} for net of {tempProfit}. SMA: {self.smaMark}."
+                f"SMA bot {self.days} FORCE-LIQUIDATED at {price} for P/L {tempProfit}. SMA: {self.smaMark}."
             )
-            # Reset state after liquidation
             self.bought = False
             self.buyPrice = double(0.0)
             return True

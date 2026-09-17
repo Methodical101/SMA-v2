@@ -22,7 +22,7 @@ class Evaluater:
         logger.appendToEvalLog("---------------------------------")
 
         try:
-            updater.smaUpdate() # start with getting current SMA marks
+            updater.smaUpdate()  # start with getting current SMA marks
         except Exception as e:
             logging.error(f"Initial SMA file update failed: {e}")
             raise
@@ -34,9 +34,7 @@ class Evaluater:
             currentDay = f.readline().strip()
         logger.appendToEvalLog("Day " + currentDay)
 
-        # trade loop
         while True:
-            # get price
             try:
                 updater.historicalUpdate()
             except Exception as e:
@@ -45,12 +43,10 @@ class Evaluater:
 
             with open("Price.txt", "r") as pf:
                 priceMessage = pf.readline().strip()
-            
-            # Read current price index to determine if we should log
+
             with open("PriceIndex.txt", "r") as rpf:
                 currentPriceIndex = int(rpf.readline())
-            
-            # Log to EvaluationLog based on config interval
+
             if EVALLOG_INTERVAL > 0 and (currentPriceIndex % EVALLOG_INTERVAL == 0 or currentPriceIndex == 1):
                 logger.appendToEvalLog("Price: " + priceMessage)
                 logger.appendToEvalLog("Price Index: " + str(currentPriceIndex))
@@ -62,14 +58,17 @@ class Evaluater:
                 logging.error("Empty price message")
                 raise Exception("Error: No price data found.")
             if priceMessage == "DONEALL":
-                # Force-liquidate any still-open positions at the final price
                 final_price = updater.get_last_valid_price()
                 if final_price is not None:
                     force_count = 0
                     for sma in smaList:
                         if sma.force_liquidate(final_price, logger):
                             force_count += 1
-                    # Unique summary line for analysis
+
+                    logger.clearTotals()
+                    for sma in smaList:
+                        sma.report(logger)
+
                     logger.appendToEvalLog(f"Force-liquidated {force_count} positions at {final_price}")
                     logging.info(f"Force-liquidated {force_count} positions at {final_price}")
                 else:
@@ -78,8 +77,6 @@ class Evaluater:
                 logger.appendToEvalLog("Evaluation Complete!")
                 print("Evaluation Complete!")
                 try:
-                    # Stock.txt is kept at project root; evaluator runs inside the per-stock folder,
-                    # so clear the root Stock.txt by writing to parent directory's Stock.txt
                     parent_stock_file = os.path.join("..", "Stock.txt")
                     with open(parent_stock_file, "w") as sf:
                         sf.write("")

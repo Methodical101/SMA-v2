@@ -43,8 +43,11 @@ SELL_RE = re.compile(
 
 # Match forced liquidations such as:
 #  SMA bot 61 FORCE-LIQUIDATED at 401.9010009765625 for P/L -7.804010009765625. SMA: 412.18...
+#  SMA bot 61 Force-Liquidated at 401.9010009765625 for net of -7.804010009765625. SMA: 412.18...
 FORCE_RE = re.compile(
-    r"SMA bot\s+(?P<sma>\d+)\s+FORCE-?LIQUIDATED\s+at\s+[\d\.eE+\-]+\s+for\s+P/?L\s+(?P<profit>[\-\d\.eE+]+)\.?",
+    r"SMA bot\s+(?P<sma>\d+)\s+FORCE-?LIQUIDATED\s+at\s+"
+    r"[\d\.eE+\-]+\s+for\s+(?:P/?L|net\s+of)\s+"
+    r"(?P<profit>[\-\d\.eE+]+)\.?",
     re.IGNORECASE,
 )
 
@@ -53,20 +56,15 @@ def parse_log(path: str) -> Tuple[Dict[int, Dict[str, float]], Dict[str, float]]
     """Parse an evaluation log file and aggregate sell trades per SMA.
 
     Returns:
-        per_sma: dict mapping sma -> {'count': int, 'total': float, 'positive': int}
-        overall: dict with keys 'count', 'total', 'positive'
+        per_sma: dict mapping sma -> {'count': int, 'total': float, 'positive': int, 'negative': int, 'zero': int}
+        overall: dict with keys 'count', 'total', 'positive', 'negative', 'zero'
     """
-    per_sma = defaultdict(lambda: {'count': 0, 'total': 0.0, 'positive': 0})
-    overall = {'count': 0, 'total': 0.0, 'positive': 0}
+    per_sma = defaultdict(lambda: {'count': 0, 'total': 0.0, 'positive': 0, 'negative': 0, 'zero': 0})
+    overall = {'count': 0, 'total': 0.0, 'positive': 0, 'negative': 0, 'zero': 0}
 
-    # Open the log and iterate line-by-line. This keeps memory usage low when
-    # analyzing large logs. We try a strict regex match first (SELL_RE). If the
-    # strict match fails but the line contains the text "for a profit of" we
-    # attempt a permissive fallback parse to salvage the profit value.
     try:
         with open(path, 'r', encoding='utf-8') as fh:
             for line in fh:
-                # Prefer forced-liquidation entries (these close open positions at the end)
                 m_force = FORCE_RE.search(line)
                 if m_force:
                     try:
@@ -75,16 +73,12 @@ def parse_log(path: str) -> Tuple[Dict[int, Dict[str, float]], Dict[str, float]]
                         try:
                             profit = float(profit_str)
                         except ValueError:
-                            profit = float(re.sub(r"[^0-9eE+\-\.]+$", "", profit_str))
+                            profit = float(re.sub(r"[^0-9eE+\-\.] +$", "", profit_str))
                     except Exception:
-                        # malformed forced-liquidation line, skip
                         continue
                 else:
-                    # Try strict sell regex first
                     m = SELL_RE.search(line)
                     if not m:
-                        # If not a strict match, try permissive parse when the
-                        # line contains the phrase 'for a profit of'
                         if 'for a profit of' in line:
                             try:
                                 parts = line.split('for a profit of', 1)[1]
@@ -94,37 +88,40 @@ def parse_log(path: str) -> Tuple[Dict[int, Dict[str, float]], Dict[str, float]]
                                 if sma_m:
                                     sma = int(sma_m.group(1))
                                 else:
-                                    # cannot determine SMA id — skip this line
                                     continue
                             except Exception:
-                                # fallback failed — skip line
                                 continue
                         else:
-                            # line doesn't contain a sell event we care about
                             continue
                     else:
-                        # Strict match succeeded — extract SMA and profit safely
                         try:
                             sma = int(m.group('sma'))
                             profit_str = m.group('profit').strip().rstrip(' .;,')
                             try:
                                 profit = float(profit_str)
                             except ValueError:
-                                profit = float(re.sub(r"[^0-9eE+\-\.]+$", "", profit_str))
+                                profit = float(re.sub(r"[^0-9eE+\-\.] +$", "", profit_str))
                         except Exception:
                             continue
 
-                # Update aggregated counters for this SMA and overall
                 per_sma[sma]['count'] += 1
                 per_sma[sma]['total'] += profit
                 if profit > 0:
                     per_sma[sma]['positive'] += 1
+                elif profit < 0:
+                    per_sma[sma]['negative'] += 1
+                else:
+                    per_sma[sma]['zero'] += 1
+
                 overall['count'] += 1
                 overall['total'] += profit
                 if profit > 0:
                     overall['positive'] += 1
+                elif profit < 0:
+                    overall['negative'] += 1
+                else:
+                    overall['zero'] += 1
     except FileNotFoundError:
-        # Let caller handle missing-file errors
         raise
     return per_sma, overall
 
@@ -135,31 +132,46 @@ def summarize(per_sma: Dict[int, Dict[str, float]], overall: Dict[str, float], t
     print(f"Overall total profit from sells: {overall['total']:.6f}")
     avg = (overall['total'] / overall['count']) if overall['count'] else 0.0
     print(f"Overall average profit per sell: {avg:.6f}")
-    print(f"Overall positive sells: {overall['positive']}\n")
+    print(f"Overall positive sells: {overall['positive']}")
+    print(f"Overall negative sells: {overall['negative']}")
+    print(f"Overall zero sells: {overall['zero']}\n")
 
-    # Sort SMAs by total profit (ascending => worst first)
     smas = sorted(per_sma.items(), key=lambda kv: kv[1]['total'])
 
     print(f"Top {top} worst SMAs (by total profit):")
     for sma, stats in smas[:top]:
         avg_s = (stats['total'] / stats['count']) if stats['count'] else 0.0
-        print(f"  SMA {sma}: trades={stats['count']}, total={stats['total']:.6f}, avg={avg_s:.6f}, positive={stats['positive']}")
+        print(
+            f"  SMA {sma}: trades={stats['count']}, total={stats['total']:.6f}, "
+            f"avg={avg_s:.6f}, positive={stats['positive']}, negative={stats['negative']}, zero={stats['zero']}"
+        )
 
     print(f"\nTop {top} best SMAs (by total profit):")
     for sma, stats in reversed(smas[-top:]):
         avg_s = (stats['total'] / stats['count']) if stats['count'] else 0.0
-        print(f"  SMA {sma}: trades={stats['count']}, total={stats['total']:.6f}, avg={avg_s:.6f}, positive={stats['positive']}")
+        print(
+            f"  SMA {sma}: trades={stats['count']}, total={stats['total']:.6f}, "
+            f"avg={avg_s:.6f}, positive={stats['positive']}, negative={stats['negative']}, zero={stats['zero']}"
+        )
 
 
 def write_csv(per_sma: Dict[int, Dict[str, float]], out_path: str) -> None:
     """Write per-SMA aggregate stats to CSV (columns: sma, trades, total, avg, positive)."""
     with open(out_path, 'w', newline='', encoding='utf-8') as csvfile:
         writer = csv.writer(csvfile)
-        writer.writerow(['sma', 'trades', 'total_profit', 'avg_profit', 'positive_trades'])
+        writer.writerow(['sma', 'trades', 'total_profit', 'avg_profit', 'positive_trades', 'negative_trades', 'zero_trades'])
         for sma in sorted(per_sma.keys()):
             stats = per_sma[sma]
             avg = (stats['total'] / stats['count']) if stats['count'] else 0.0
-            writer.writerow([sma, stats['count'], f"{stats['total']:.6f}", f"{avg:.6f}", stats['positive']])
+            writer.writerow([
+                sma,
+                stats['count'],
+                f"{stats['total']:.6f}",
+                f"{avg:.6f}",
+                stats['positive'],
+                stats['negative'],
+                stats['zero'],
+            ])
 
 
 def parse_totals_file(path: str) -> Dict[int, float]:
@@ -188,7 +200,7 @@ def parse_totals_file(path: str) -> Dict[int, float]:
                     val = float(val_str)
                 except ValueError:
                     try:
-                        val = float(re.sub(r"[^0-9eE+\-\.]+$", "", val_str))
+                        val = float(re.sub(r"[^0-9eE+\-\.] +$", "", val_str))
                     except Exception:
                         continue
                 totals[sma] = val
@@ -209,10 +221,8 @@ def report_totals_discrepancies(per_sma: Dict[int, Dict[str, float]], totals: Di
                 discrepancies.append((sma, 'reported_only', reported, 0.0))
             continue
         realized_total = agg['total']
-        # mismatch in sign
         if (realized_total < 0 and reported >= 0) or (realized_total > 0 and reported <= 0):
             discrepancies.append((sma, 'sign_mismatch', reported, realized_total))
-        # magnitude mismatch > small epsilon
         elif abs(reported - realized_total) > 1e-6:
             discrepancies.append((sma, 'value_mismatch', reported, realized_total))
 
@@ -246,20 +256,15 @@ def main(argv=None):
         print(f"Error: log file not found: {path}")
         sys.exit(2)
 
-    # Prepare sorted list of SMAs by total so we can both summarize and optionally
-    # write a truncated CSV when --top is provided alongside --csv.
     smas = sorted(per_sma.items(), key=lambda kv: kv[1]['total'])
 
     summarize(per_sma, overall, top=args.top)
 
     if args.csv:
-        # If --top is provided, truncate the CSV to only include the printed
-        # Top N worst and Top N best SMAs (avoids writing the full table).
         if args.top and args.top > 0:
             topn = args.top
             worst = [sma for sma, _ in smas[:topn]]
             best = [sma for sma, _ in list(reversed(smas[-topn:]))]
-            # Combine while preserving order: worst then best (remove duplicates)
             chosen = []
             for s in worst + best:
                 if s not in chosen:
@@ -270,7 +275,6 @@ def main(argv=None):
             write_csv(per_sma, args.csv)
         print(f"Wrote CSV to {args.csv}")
 
-    # Optionally compare to totals file
     if getattr(args, 'compare_totals', False):
         totals_path = args.totals_file if args.totals_file else (f"{args.stock}_Totals.txt" if args.stock else None)
         if not totals_path:
