@@ -1,4 +1,4 @@
-# SMA-v2: Simple Moving Average Trading Strategy Evaluator
+﻿# SMA-v2: Simple Moving Average Trading Strategy Evaluator
 
 A Python-based backtesting system for evaluating multiple SMA (Simple Moving Average) trading strategies simultaneously across historical stock data.
 
@@ -13,10 +13,11 @@ This tool allows you to simulate and evaluate up to 200 different SMA trading st
 - **Two Trading Modes**:
   - **Momentum**: Buy when price > SMA, sell when price < SMA
   - **Mean Reversion**: Buy when price < SMA, sell when price > SMA
-- **Configurable Parameters**: Easy-to-modify thresholds, fees, and trading rules via `Config.py`
+- **Configurable Parameters**: Easy-to-modify thresholds, fees, and trading rules via `config.py`
 - **Resume Capability**: Pause and resume evaluations
-- **Detailed Logging**: Debug logs and evaluation timelines for analysis
+- **Detailed Logging**: App-level and per-package logging controls for debugging without overwhelming output
 - **Clean State Management**: File-based state tracking with automatic cleanup
+- **Analyzer Support**: Automatic structured-event analysis, CSV exports, and discrepancy checks against totals files
 
 ## Installation
 
@@ -53,26 +54,61 @@ source .venv/bin/activate
 
 Evaluate a stock symbol (e.g., AAPL) with default settings:
 ```bash
-python Main.py --new --eval --stock AAPL
+python main.py --new --eval --stock AAPL
 ```
 
 ### Resuming an Evaluation
 
 Resume a previously started evaluation (now requires the stock symbol):
 ```bash
-python Main.py --resume --eval --stock TSLA
+python main.py --resume --eval --stock TSLA
 ```
+
+### Logging Levels
+
+The app supports separate log levels for the project itself and for third-party libraries.
+
+```bash
+# Set application log level only
+python main.py --new --eval --stock AAPL --log-level DEBUG
+
+# Set all package loggers to a single override level
+python main.py --new --eval --stock AAPL --log-level INFO --log-level-packages WARNING
+
+# Override individual packages; repeat the option as needed
+python main.py --new --eval --stock AAPL --log-level DEBUG \
+  --log-level-package yfinance=INFO \
+  --log-level-package pandas=WARNING
+
+# Use package defaults but increase app verbosity
+python main.py --new --eval --stock AAPL --log-level DEBUG
+```
+
+Defaults live in `config.py`:
+```python
+APP_LOG_LEVEL = "INFO"
+PACKAGE_LOG_LEVELS = {
+    "yfinance": "WARNING",
+    "urllib3": "WARNING",
+    "pandas": "WARNING",
+    "numpy": "WARNING",
+}
+```
+
+`--log-level` controls application logging. `--log-level-packages` applies one level to every configured package. The repeatable `--log-level-package NAME=LEVEL` option overrides individual package loggers. Package defaults are used unless a command-line override is supplied.
+
+`Debug.log` uses a rotating file handler with three 5 MB backups, so verbose debugging does not grow without bound. The normal default keeps third-party libraries at WARNING and avoids the excessive output and performance problems caused by enabling DEBUG logging globally.
 
 ### Cleaning Up Logs
 
 Delete all logs for a specific stock:
 ```bash
-python Main.py --clean --stock AAPL
+python main.py --clean --stock AAPL
 ```
 
 ## Configuration
 
-All trading parameters are centralized in `Config.py`:
+All trading parameters are centralized in `config.py`:
 
 ### SMA Configuration
 ```python
@@ -98,6 +134,13 @@ TRADE_MODE = 'mean_reversion'  # 'momentum' or 'mean_reversion'
 
 ### Logging Configuration
 ```python
+APP_LOG_LEVEL = "INFO"      # Root app log level: DEBUG, INFO, WARNING, ERROR, CRITICAL
+PACKAGE_LOG_LEVELS = {      # Third-party package noise suppression
+    "yfinance": "WARNING",
+    "urllib3": "WARNING",
+    "pandas": "WARNING",
+    "numpy": "WARNING",
+}
 LOG_PRICE_INTERVAL = 100    # Log price every N ticks to debug.log
 LOG_INDEX_INTERVAL = 100    # Log index info every N ticks to debug.log
 EVALLOG_INTERVAL = 100      # Write to EvaluationLog.txt every N ticks
@@ -110,29 +153,38 @@ When you start a new evaluation the tool creates a per-stock folder named after 
 - `./<STOCK>/<STOCK>_EvaluationLog.txt`: Detailed timeline of all buy/sell and forced-liquidation actions
 - `./<STOCK>/<STOCK>_Totals.txt`: Daily profit totals for each SMA strategy
 - `./<STOCK>/Stock.txt`: Per-stock pointer and local state files (DayIndex.txt, PriceIndex.txt, SMA.txt, Price.txt)
-- `Debug.log` (root): Detailed debug information (rotated/cleared per run by `Main.py`)
+- `Debug.log` (root): Detailed debug information with automatic size-based rotation
 - `StockData.csv` (per-stock folder): Cached intraday price data used for simulation
+- `./<STOCK>/<STOCK>_Events.jsonl`: Structured machine-readable buy, sell, and forced-liquidation events
 
 Note: `--clean` will remove artifacts from the per-stock folder (and legacy root-level files if present).
 
-## Analyzer examples and CSV truncation
+## Analyzer integration and CSV output
 
-The built-in analyzer (`tools/Analyze.py`) inspects the evaluation log and summarizes realized sells per SMA. Here are common usages and notes about CSV output truncation when using `--top`:
+Every evaluation writes both a human-readable evaluation log and a structured `<STOCK>_Events.jsonl` file. After evaluation completes, `main.py` automatically runs the analyzer unless `--no-analyze` is supplied.
 
-- Analyze a specific log file and write a full CSV:
+When invoked with `--stock`, the analyzer automatically prefers a non-empty `<STOCK>_Events.jsonl` file. If no structured event file exists, it falls back to the legacy `<STOCK>_EvaluationLog.txt` parser. This keeps older evaluation folders compatible.
+
+If both files exist, the analyzer merges them. Legacy trades are retained and matching structured events are deduplicated by event type, SMA, and profit. This supports evaluations that were started before structured events were introduced and later resumed with the new code.
+
+- Run the same automatic source selection manually:
 ```bash
-python3 tools/Analyze.py --log-file EH/EH_EvaluationLog.txt --csv EH/EH_Analysis_full.csv --compare-totals --totals-file EH/EH_Totals.txt
+python3 tools/analyze.py --stock EH --csv EH_Analysis.csv --compare-totals
 ```
 
-- Analyze from inside a per-stock folder (mirrors how `Main.py` invokes it):
+- Analyze a specific structured event file:
 ```bash
-cd TSLA
-python3 ../tools/Analyze.py --stock TSLA --csv TSLA_Analysis.csv --compare-totals
+python3 tools/analyze.py --events-file EH/EH_Events.jsonl --csv EH_Analysis.csv --compare-totals --totals-file EH/EH_Totals.txt
 ```
 
-- Quick summary only (no CSV):
+- Analyze a legacy text log explicitly:
 ```bash
-python3 tools/Analyze.py --log-file EH/EH_EvaluationLog.txt --top 3
+python3 tools/analyze.py --log-file EH/EH_EvaluationLog.txt --csv EH_Analysis_full.csv --compare-totals --totals-file EH/EH_Totals.txt
+```
+
+- Quick summary only:
+```bash
+python3 tools/analyze.py --stock EH --top 3
 ```
 
 CSV truncation behavior:
@@ -140,6 +192,15 @@ CSV truncation behavior:
 - If you want the full per-SMA table, omit `--top` and provide only `--csv PATH` to write the complete results.
 
 If you'd prefer a different truncation behaviour (for example "Top N overall" rather than worst+best, or preserving the printed order in the CSV), tell me and I can add a flag to control that.
+
+The analyzer counts `sell` and `force_liquidate` events as realized trades and ignores `buy` events when calculating profit totals. Malformed structured-event records fail with a line-specific error instead of silently producing incomplete results.
+
+### Tests
+
+Run the focused unit tests from the repository root:
+```bash
+python -m unittest discover -s tests -v
+```
 
 ## How It Works
 
@@ -152,7 +213,7 @@ If you'd prefer a different truncation behaviour (for example "Top N overall" ra
    - Applies trading fees and downtime penalties
 4. **Reporting**: Generates daily totals and evaluation logs showing performance of each SMA period
 
-The analyzer (`tools/Analyze.py`) now also recognizes forced-liquidation log entries (marked by `FORCE-LIQUIDATED`) and includes those final forced closes in the per-SMA aggregates.
+The analyzer (`tools/analyze.py`) now also recognizes forced-liquidation log entries (marked by `FORCE-LIQUIDATED`) and includes those final forced closes in the per-SMA aggregates.
 
 ## Trading Logic
 
@@ -169,14 +230,13 @@ After each sale, the bot enters a cooldown period (`DOWNTIME_DAYS`) before it ca
 ## Example Workflow
 
 ```bash
-# 1. Configure your parameters in Config.py
+# 1. Configure your parameters in config.py
 # Edit SMA_MIN, SMA_MAX, EVAL_DAYS, etc.
 
 # 2. Start a new evaluation
-python Main.py --new --eval --stock TSLA
+python main.py --new --eval --stock TSLA
 
 # 3. Monitor progress in the console
-# maxIndex: 6238, priceIndex: 123
 # Day 1
 # Day 2
 # ...
@@ -184,6 +244,8 @@ python Main.py --new --eval --stock TSLA
 # 4. Review results (files are inside the per-stock folder)
 cat TSLA/TSLA_Totals.txt        # See final profits for each SMA
 cat TSLA/TSLA_EvaluationLog.txt # See detailed trade history (includes FORCE-LIQUIDATED lines)
+cat TSLA/TSLA_Events.jsonl      # See structured trade events
+cat TSLA/TSLA_Analysis.csv      # See analyzer output
 cat Debug.log                    # See technical/debug details (root)
 ```
 
@@ -191,18 +253,55 @@ cat Debug.log                    # See technical/debug details (root)
 
 ```
 SMA-v2/
-├── Config.py              # Configuration settings
-├── Main.py                # CLI entry point
-├── requirements.txt       # Python dependencies
-├── setup.sh              # Setup script
-├── data/
-│   ├── LogManager.py     # File-based logging
-│   └── StockUpdater.py   # Data fetching and SMA calculation
-├── evaluate/
-│   ├── Evaluator.py      # Evaluation orchestrator
-│   └── SMA.py            # Individual SMA bot logic
-└── run/                  # (Future: live trading mode)
+â”œâ”€â”€ config.py              # Configuration settings
+â”œâ”€â”€ main.py                # CLI entry point
+â”œâ”€â”€ requirements.txt       # Python dependencies
+â”œâ”€â”€ setup.sh              # Setup script
+â”œâ”€â”€ data/
+â”‚   â”œâ”€â”€ log_manager.py     # File-based logging
+â”‚   â””â”€â”€ stock_updater.py   # Data fetching and SMA calculation
+â”œâ”€â”€ evaluate/
+â”‚   â”œâ”€â”€ evaluator.py      # Evaluation orchestrator
+â”‚   â””â”€â”€ sma.py            # Individual SMA bot logic
+â”œâ”€â”€ tests/
+â”‚   â””â”€â”€ test_core.py      # Focused unit tests
+â””â”€â”€ run/                  # (Future: live trading mode)
 ```
+
+### Code map
+
+- `main.py` reads command-line options, creates stock folders, configures logging, and starts the other parts.
+- `config.py` contains the values that control the evaluation.
+- `evaluate/evaluator.py` runs the day-by-day evaluation loop.
+- `evaluate/sma.py` contains the buy, sell, cooldown, and profit rules for one SMA strategy.
+- `data/stock_updater.py` downloads Yahoo Finance data and writes the small state files used for resume support.
+- `data/log_manager.py` writes readable logs, totals, and structured trade events.
+- `tools/analyze.py` reads structured events or old text logs and creates summaries and CSV files.
+- `tests/test_core.py` contains small examples of the expected strategy and analyzer behavior.
+
+The Python files are organized into sections with comments. Functions and methods use standard Python `snake_case` names, such as `stock_directory`, `price_message`, and `sma_list`, so the data flow can be followed without learning a framework.
+
+Names that begin with one underscore, such as `_path()` or `_aggregate()`, are
+internal helper functions. Python does not enforce privacy for a single
+underscore; it is a clear convention that other modules should normally use
+the public functions instead. Double underscores have special name-mangling
+behavior and are not used for ordinary helpers in this project.
+
+The renamed public methods use snake_case throughout. A few old camelCase
+method names remain as compatibility aliases only, so existing external
+scripts can continue running while new code uses the standardized names.
+
+The same convention is used for the rest of the code:
+
+- Module filenames use lowercase `snake_case`, such as `stock_updater.py`.
+- Class names use `PascalCase`, such as `StockUpdater` and `LogManager`.
+- Variables, attributes, and objects use `snake_case`, such as
+  `stock_directory` and `total_profit`.
+- Configuration constants intentionally use uppercase names, such as
+  `SMA_MIN` and `TRADING_FEE`.
+
+The original title-case module filenames remain as small compatibility
+wrappers (`Main.py`, `Config.py`, and similar) for older commands and imports.
 
 ## Dependencies
 
@@ -238,3 +337,4 @@ TBD
 ## Support
 
 For issues or questions, please open a Github issue.
+
