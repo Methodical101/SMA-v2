@@ -164,11 +164,11 @@ def write_text(path, text):
 
 
 def check_internet_connection():
-    """Check the same Yahoo service used by the evaluator."""
+    """Check google.com for internet."""
     for attempt in range(1, 6):
         try:
             with urllib.request.urlopen(
-                "https://query1.finance.yahoo.com/v8/finance/chart/AAPL",
+                "https://google.com",
                 timeout=5,
             ):
                 return True
