@@ -79,6 +79,9 @@ class Evaluator:
                     for sma in sma_list:
                         sma.report(logger)
 
+                    with open(os.path.join(self.base_dir, "DayIndex.txt"), "r", encoding="utf-8") as day_file:
+                        final_day = day_file.readline().strip()
+                    logger.print_daily_trade_count(final_day)
                     logger.append_to_eval_log(f"Force-liquidated {force_count} positions at {final_price}")
                     logging.info(f"Force-liquidated {force_count} positions at {final_price}")
                 else:
@@ -105,7 +108,6 @@ class Evaluator:
                 with open(os.path.join(self.base_dir, "PriceIndex.txt"), "w", encoding="utf-8") as pif:
                     pif.write("1")
                 logger.append_to_eval_log("Day " + str(current_index + 1))
-                print(f"Day {current_index + 1}")
                 logging.info(f"Moving to day {current_index + 1}")
                 try:
                     updater.sma_update()
@@ -116,6 +118,7 @@ class Evaluator:
                     sma.report(logger)
                     sma.sma_downtime_update()
                     sma.sma_update(updater)
+                logger.print_daily_trade_count(current_index)
                 continue
 
             try:
@@ -132,4 +135,3 @@ class Evaluator:
 
 # Keep the old misspelled name working for existing imports.
 Evaluater = Evaluator
-

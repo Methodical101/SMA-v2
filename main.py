@@ -5,7 +5,7 @@ Program flow:
 1. Read and validate command-line arguments.
 2. Configure logging.
 3. Clean, resume, or create a stock session.
-4. Start the evaluator.
+4. Automatically create or resume the stock session.
 5. Run the analyzer when evaluation finishes.
 
 The runner mode is intentionally left as a future feature.
@@ -80,13 +80,10 @@ def create_argument_parser():
     """Build the command-line parser in one easy-to-find place."""
     parser = argparse.ArgumentParser(
         description="SMA Evaluator/Runner - Simulate SMA trading strategies",
-        epilog="Example: python main.py --new --eval --stock AAPL",
+        epilog="Example: python main.py --eval --stock AAPL",
     )
 
-    session_group = parser.add_mutually_exclusive_group(required=True)
-    session_group.add_argument("--new", action="store_true", help="Start a new session")
-    session_group.add_argument("--resume", action="store_true", help="Resume a session")
-    session_group.add_argument(
+    parser.add_argument(
         "--clean",
         dest="clean_logs",
         action="store_true",
@@ -133,14 +130,18 @@ def create_argument_parser():
         action="store_true",
         help="Skip the analyzer after evaluation",
     )
+    parser.add_argument(
+        "--fix",
+        action="store_true",
+        help="Rerun the evaluation once if analyzer totals do not match",
+    )
     return parser
 
 
 def validate_arguments(parser, args):
     """Validate arguments that argparse cannot express by itself."""
-    if args.clean_logs or args.new or args.resume:
-        if not args.stock:
-            parser.error("--stock is required for --new, --resume, and --clean")
+    if not args.stock:
+        parser.error("--stock is required")
 
     if args.stock and not re.fullmatch(r"[A-Za-z0-9.^_-]+", args.stock):
         parser.error("--stock contains invalid characters")
@@ -148,7 +149,7 @@ def validate_arguments(parser, args):
     if args.days is not None and args.days < 1:
         parser.error("--days must be positive")
 
-    # Cleaning does not need a mode, but evaluation and resume do.
+    # Cleaning is a complete action without a mode. All other actions need a mode.
     if not args.clean_logs and not args.mode:
         parser.error("A mode (--eval or --run) is required")
 
@@ -230,6 +231,18 @@ def create_stock_directory(stock_symbol, reset_files):
     return stock_directory
 
 
+def stock_session_exists(stock_symbol):
+    """Return whether a usable stock session already exists."""
+    stock_directory = os.path.join(os.getcwd(), stock_symbol)
+    stock_file = os.path.join(stock_directory, "Stock.txt")
+
+    if not os.path.isdir(stock_directory) or not os.path.isfile(stock_file):
+        return False
+
+    with open(stock_file, "r", encoding="utf-8") as file:
+        return file.readline().strip().upper() == stock_symbol.upper()
+
+
 # ---------------------------------------------------------------------------
 # Evaluation and analyzer integration
 # ---------------------------------------------------------------------------
@@ -263,9 +276,10 @@ def run_analyzer(stock_symbol, stock_directory):
         logging.error("Analyzer stderr:\n%s", result.stderr)
     if result.returncode != 0:
         raise RuntimeError(f"Analyzer failed with exit code {result.returncode}")
+    return "Found " in result.stdout and " discrepancies:" in result.stdout
 
 
-def run_evaluation(stock_symbol, stock_directory, skip_analyzer):
+def run_evaluation(stock_symbol, stock_directory, skip_analyzer, fix_mismatches=False):
     """Import and run the evaluator, then optionally analyze its output."""
     try:
         from evaluate.evaluator import Evaluator
@@ -277,8 +291,21 @@ def run_evaluation(stock_symbol, stock_directory, skip_analyzer):
     evaluator = Evaluator(stock_symbol, stock_directory)
     evaluator.start()
 
-    if not skip_analyzer:
-        run_analyzer(stock_symbol, stock_directory)
+    if skip_analyzer:
+        return
+
+    has_mismatches = run_analyzer(stock_symbol, stock_directory)
+    if has_mismatches and fix_mismatches:
+        print(f"Totals mismatch detected for {stock_symbol}; rerunning from a clean session.")
+        clean_stock(stock_symbol)
+        stock_directory = create_stock_directory(stock_symbol, reset_files=True)
+        evaluator = Evaluator(stock_symbol, stock_directory)
+        evaluator.start()
+        if run_analyzer(stock_symbol, stock_directory):
+            print(
+                f"Warning: totals still mismatch for {stock_symbol} "
+                "after the automatic fix run; continuing."
+            )
 
 
 # ---------------------------------------------------------------------------
@@ -313,19 +340,27 @@ class Main:
             return
 
         try:
-            if args.resume:
-                stock_directory = create_stock_directory(args.stock, reset_files=False)
-                print(f"Resuming session for {args.stock}")
+            is_existing_session = stock_session_exists(args.stock)
+            stock_directory = create_stock_directory(
+                args.stock,
+                reset_files=not is_existing_session,
+            )
+            if is_existing_session:
+                print(f"Automatically resuming session for {args.stock}")
             else:
-                stock_directory = create_stock_directory(args.stock, reset_files=True)
-                print(f"Starting new session for {args.stock}")
+                print(f"Automatically starting a new session for {args.stock}")
 
             if args.mode == "run":
                 print("Runner mode is not implemented yet.")
                 return
 
             print(f"Starting evaluation for {args.stock}")
-            run_evaluation(args.stock, stock_directory, args.no_analyze)
+            run_evaluation(
+                args.stock,
+                stock_directory,
+                args.no_analyze,
+                fix_mismatches=args.fix,
+            )
         except Exception as error:
             logging.exception("Session failed")
             print(f"Error: {error}")

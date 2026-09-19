@@ -267,7 +267,7 @@ def parse_totals_file(path: str) -> Dict[int, float]:
     return totals
 
 
-def report_totals_discrepancies(per_sma: Dict[int, Dict[str, float]], totals: Dict[int, float]) -> None:
+def report_totals_discrepancies(per_sma: Dict[int, Dict[str, float]], totals: Dict[int, float]) -> bool:
     """Compare realized sell aggregates (per_sma) to reported totals and print discrepancies.
 
     Flags SMAs where sign differs or absolute difference is non-zero.
@@ -288,11 +288,12 @@ def report_totals_discrepancies(per_sma: Dict[int, Dict[str, float]], totals: Di
 
     if not discrepancies:
         print('No discrepancies found between realized sells and totals file.')
-        return
+        return False
 
     print(f'Found {len(discrepancies)} discrepancies:')
     for sma, kind, reported, realized in sorted(discrepancies, key=lambda x: x[0]):
         print(f'  SMA {sma}: {kind} -> reported={reported:.6f}, realized={realized:.6f}')
+    return True
 
 
 def main(argv=None):
@@ -369,4 +370,3 @@ def main(argv=None):
 
 if __name__ == '__main__':
     main()
-

@@ -14,6 +14,7 @@ class LogManager:
     def __init__(self, stock, base_dir=None):
         self.stock = stock
         self.base_dir = base_dir or os.getcwd()
+        self.daily_trade_count = 0
 
     def _path(self, suffix):
         """Build a path for one of this stock's output files."""
@@ -21,6 +22,7 @@ class LogManager:
 
     def append_trade_event(self, event, sma, price, profit=None):
         """Write a machine-readable trade event without changing the human log."""
+        self.daily_trade_count += 1
         # JSONL is append-only: each line is independently parseable, which
         # makes interrupted evaluations recoverable and easy to inspect.
         record = {
@@ -55,12 +57,17 @@ class LogManager:
             handle.write("")
 
     def give_eval_report(self, days, profit):
+        """Save one SMA's total without printing it during daily progress."""
         days_str = str(days)
         profit_str = format(float(profit), ".6f")
         message = f"SMA {days_str} total profit: {profit_str}"
-        print(message)
         self.append_to_eval_log(message)
         self.append_to_totals(f"SMA {days_str}: {profit_str}")
+
+    def print_daily_trade_count(self, day):
+        """Print the number of trade events completed during one evaluation day."""
+        print(f"Day {day}: {self.daily_trade_count} trades")
+        self.daily_trade_count = 0
 
     def give_runner_report(self, days, profit):
         days_str = str(days)
