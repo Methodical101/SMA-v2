@@ -24,6 +24,9 @@ from logging.handlers import RotatingFileHandler
 
 from config import APP_LOG_LEVEL, PACKAGE_LOG_LEVELS, LOG_LEVELS, validate_configuration
 
+PROJECT_DIRECTORY = os.path.dirname(os.path.abspath(__file__))
+OUTPUT_DIRECTORY = os.path.join(PROJECT_DIRECTORY, "output")
+
 
 # ---------------------------------------------------------------------------
 # Logging
@@ -182,9 +185,10 @@ def check_internet_connection():
 
 
 def clean_stock(stock_symbol):
-    """Delete the current stock directory and old root-level output files."""
+    """Delete one stock's generated output directory and legacy root files."""
     deleted_count = 0
-    stock_directory = os.path.join(os.getcwd(), stock_symbol)
+    stock_directory = os.path.join(OUTPUT_DIRECTORY, stock_symbol)
+    os.makedirs(OUTPUT_DIRECTORY, exist_ok=True)
 
     if os.path.isdir(stock_directory):
         shutil.rmtree(stock_directory)
@@ -211,8 +215,9 @@ def clean_stock(stock_symbol):
 
 
 def create_stock_directory(stock_symbol, reset_files):
-    """Create a stock directory and initialize its small state files."""
-    stock_directory = os.path.join(os.getcwd(), stock_symbol)
+    """Create an output stock directory and initialize its state files."""
+    os.makedirs(OUTPUT_DIRECTORY, exist_ok=True)
+    stock_directory = os.path.join(OUTPUT_DIRECTORY, stock_symbol)
     os.makedirs(stock_directory, exist_ok=True)
     write_text(os.path.join(stock_directory, "Stock.txt"), stock_symbol)
 
@@ -233,7 +238,7 @@ def create_stock_directory(stock_symbol, reset_files):
 
 def stock_session_exists(stock_symbol):
     """Return whether a usable stock session already exists."""
-    stock_directory = os.path.join(os.getcwd(), stock_symbol)
+    stock_directory = os.path.join(OUTPUT_DIRECTORY, stock_symbol)
     stock_file = os.path.join(stock_directory, "Stock.txt")
 
     if not os.path.isdir(stock_directory) or not os.path.isfile(stock_file):

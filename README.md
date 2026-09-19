@@ -193,14 +193,30 @@ EVALLOG_INTERVAL = 100      # Write to EvaluationLog.txt every N ticks
 
 ## Output files and layout
 
-When you start a new evaluation the tool creates a per-stock folder named after the symbol and places most state and output files there. The project root keeps `Debug.log` so all debug records are consolidated in one place.
+When you start an evaluation the tool creates an `output/` directory and a
+per-stock folder inside it. Generated state and analysis files are kept there,
+while source code and configuration remain in the project root. The project
+root keeps `Debug.log` so all debug records are consolidated in one place.
 
-- `./<STOCK>/<STOCK>_EvaluationLog.txt`: Detailed timeline of all buy/sell and forced-liquidation actions
-- `./<STOCK>/<STOCK>_Totals.txt`: Daily profit totals for each SMA strategy
-- `./<STOCK>/Stock.txt`: Per-stock pointer and local state files (DayIndex.txt, PriceIndex.txt, SMA.txt, Price.txt)
+For example:
+
+```text
+output/
+├── AAPL/
+│   ├── AAPL_Events.jsonl
+│   ├── AAPL_EvaluationLog.txt
+│   ├── AAPL_Totals.txt
+│   └── AAPL_Analysis.csv
+└── MSFT/
+    └── ...
+```
+
+- `output/<STOCK>/<STOCK>_EvaluationLog.txt`: Detailed timeline of all buy/sell and forced-liquidation actions
+- `output/<STOCK>/<STOCK>_Totals.txt`: Daily profit totals for each SMA strategy
+- `output/<STOCK>/Stock.txt`: Per-stock pointer and local state files (DayIndex.txt, PriceIndex.txt, SMA.txt, Price.txt)
 - `Debug.log` (root): Detailed debug information with automatic size-based rotation
-- `StockData.csv` (per-stock folder): Cached intraday price data used for simulation
-- `./<STOCK>/<STOCK>_Events.jsonl`: Structured machine-readable buy, sell, and forced-liquidation events
+- `output/<STOCK>/StockData.csv`: Cached intraday price data used for simulation
+- `output/<STOCK>/<STOCK>_Events.jsonl`: Structured machine-readable buy, sell, and forced-liquidation events
 
 Note: `--clean` will remove artifacts from the per-stock folder (and legacy root-level files if present).
 
@@ -212,19 +228,19 @@ When invoked with `--stock`, the analyzer automatically prefers a non-empty `<ST
 
 If both files exist, the analyzer merges them. Legacy trades are retained and matching structured events are deduplicated by event type, SMA, and profit. This supports evaluations that were started before structured events were introduced and later resumed with the new code.
 
-- Run the same automatic source selection manually:
+- Analyze a stock from the project root:
 ```bash
-python3 tools/analyze.py --stock EH --csv EH_Analysis.csv --compare-totals
+python3 tools/analyze.py --events-file output/EH/EH_Events.jsonl --csv output/EH/EH_Analysis.csv --compare-totals --totals-file output/EH/EH_Totals.txt
 ```
 
 - Analyze a specific structured event file:
 ```bash
-python3 tools/analyze.py --events-file EH/EH_Events.jsonl --csv EH_Analysis.csv --compare-totals --totals-file EH/EH_Totals.txt
+python3 tools/analyze.py --events-file output/EH/EH_Events.jsonl --csv output/EH/EH_Analysis.csv --compare-totals --totals-file output/EH/EH_Totals.txt
 ```
 
 - Analyze a legacy text log explicitly:
 ```bash
-python3 tools/analyze.py --log-file EH/EH_EvaluationLog.txt --csv EH_Analysis_full.csv --compare-totals --totals-file EH/EH_Totals.txt
+python3 tools/analyze.py --log-file output/EH/EH_EvaluationLog.txt --csv output/EH/EH_Analysis_full.csv --compare-totals --totals-file output/EH/EH_Totals.txt
 ```
 
 - Quick summary only:
@@ -287,10 +303,10 @@ python main.py --eval --stock TSLA
 # ...
 
 # 4. Review results (files are inside the per-stock folder)
-cat TSLA/TSLA_Totals.txt        # See final profits for each SMA
-cat TSLA/TSLA_EvaluationLog.txt # See detailed trade history (includes FORCE-LIQUIDATED lines)
-cat TSLA/TSLA_Events.jsonl      # See structured trade events
-cat TSLA/TSLA_Analysis.csv      # See analyzer output
+cat output/TSLA/TSLA_Totals.txt        # See final profits for each SMA
+cat output/TSLA/TSLA_EvaluationLog.txt # See detailed trade history (includes FORCE-LIQUIDATED lines)
+cat output/TSLA/TSLA_Events.jsonl      # See structured trade events
+cat output/TSLA/TSLA_Analysis.csv      # See analyzer output
 cat Debug.log                    # See technical/debug details (root)
 ```
 
