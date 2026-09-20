@@ -1,4 +1,4 @@
-﻿"""Command-line entry point for the SMA evaluator.
+"""Command-line entry point for the SMA evaluator and live runner.
 
 Program flow:
 
@@ -8,7 +8,7 @@ Program flow:
 4. Automatically create or resume the stock session.
 5. Run the analyzer when evaluation finishes.
 
-The runner mode is intentionally left as a future feature.
+Runner mode only reports signals; it never places trades.
 """
 
 import argparse
@@ -44,6 +44,7 @@ def configure_logging(app_level, package_levels):
         backupCount=3,
         encoding="utf-8",
     )
+
     file_handler.setFormatter(
         logging.Formatter("%(asctime)s %(levelname)s %(name)s %(message)s")
     )
@@ -106,11 +107,17 @@ def create_argument_parser():
         dest="mode",
         action="store_const",
         const="run",
-        help="Run mode (not implemented)",
+        help="Watch live prices and print SMA buy/sell notifications",
     )
 
     parser.add_argument("--stock", help="Stock symbol")
     parser.add_argument("--days", type=int, help="Number of runner days")
+    parser.add_argument("--sma", type=int, help="SMA window for live runner mode")
+    parser.add_argument(
+        "--poll-seconds",
+        type=int,
+        help="Seconds between live runner checks (default from config.py)",
+    )
     parser.add_argument(
         "--log-level",
         choices=list(LOG_LEVELS.keys()),
@@ -151,6 +158,15 @@ def validate_arguments(parser, args):
 
     if args.days is not None and args.days < 1:
         parser.error("--days must be positive")
+
+    if args.mode == "run" and args.sma is None:
+        parser.error("--sma is required for --run")
+
+    if args.sma is not None and args.sma < 1:
+        parser.error("--sma must be positive")
+
+    if args.poll_seconds is not None and args.poll_seconds < 1:
+        parser.error("--poll-seconds must be positive")
 
     # Cleaning is a complete action without a mode. All other actions need a mode.
     if not args.clean_logs and not args.mode:
@@ -313,6 +329,14 @@ def run_evaluation(stock_symbol, stock_directory, skip_analyzer, fix_mismatches=
             )
 
 
+def run_runner(stock_symbol, stock_directory, sma_days, poll_seconds):
+    """Start live monitoring for one stock and one SMA window."""
+    from run.runner import Runner
+
+    runner = Runner(stock_symbol, sma_days, stock_directory, poll_seconds)
+    runner.start()
+
+
 # ---------------------------------------------------------------------------
 # Application entry point
 # ---------------------------------------------------------------------------
@@ -345,6 +369,17 @@ class Main:
             return
 
         try:
+            if args.mode == "run":
+                # Runner mode may reuse the stock output directory for its
+                # notification log, but it does not resume evaluation state.
+                stock_directory = create_stock_directory(
+                    args.stock,
+                    reset_files=False,
+                )
+                print(f"Starting live runner for {args.stock}")
+                run_runner(args.stock, stock_directory, args.sma, args.poll_seconds)
+                return
+
             is_existing_session = stock_session_exists(args.stock)
             stock_directory = create_stock_directory(
                 args.stock,
@@ -354,10 +389,6 @@ class Main:
                 print(f"Automatically resuming session for {args.stock}")
             else:
                 print(f"Automatically starting a new session for {args.stock}")
-
-            if args.mode == "run":
-                print("Runner mode is not implemented yet.")
-                return
 
             print(f"Starting evaluation for {args.stock}")
             run_evaluation(

@@ -46,6 +46,11 @@ DOWNTIME_DAYS = 4     # Days to wait after selling before buying again
 # Set to 'mean_reversion' to buy low / sell high behavior.
 TRADE_MODE = 'mean_reversion'
 
+# Runner settings. The command-line options can override the polling delay
+# and choose the SMA window for each live monitoring session.
+RUNNER_INTERVAL = "1m"
+RUNNER_POLL_SECONDS = 60
+
 # ---------------------------------------------------------------------------
 # How often detailed progress is written
 # ---------------------------------------------------------------------------
@@ -68,6 +73,8 @@ def validate_configuration():
         raise ValueError("SMA_MIN, SMA_MAX, and SMA_STEP must define a positive range")
     if EVAL_DAYS < 1:
         raise ValueError("EVAL_DAYS must be positive")
+    if RUNNER_POLL_SECONDS < 1:
+        raise ValueError("RUNNER_POLL_SECONDS must be positive")
     if BUY_THRESHOLD < 0 or SELL_THRESHOLD < 0 or TRADING_FEE < 0 or DOWNTIME_DAYS < 0:
         raise ValueError("Trading thresholds, fees, and downtime must not be negative")
     if TRADE_MODE not in {"momentum", "mean_reversion"}:
@@ -79,4 +86,3 @@ def validate_configuration():
             raise ValueError(f"Invalid package logger name: {package_name}")
         if level.upper() not in LOG_LEVELS:
             raise ValueError(f"Unsupported log level for {package_name}: {level}")
-

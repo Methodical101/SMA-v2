@@ -90,6 +90,59 @@ The list is not fetched dynamically from the index. Market-cap rankings
 change, so update the `STOCKS` list in `run_top_20_snp500.sh` when a different
 ranking date or stock universe is required.
 
+### Live Runner
+
+Runner mode watches one stock continuously and prints a notification when the
+current price reaches a buy or sell condition for the selected SMA window. It
+uses the configured `TRADE_MODE`, `BUY_THRESHOLD`, and `SELL_THRESHOLD`
+values. It does not place orders.
+
+Start a runner for a 20-day SMA:
+
+```bash
+python main.py --run --stock AAPL --sma 20
+```
+
+Other examples:
+
+```bash
+# Watch Microsoft using a 50-day SMA
+python main.py --run --stock MSFT --sma 50
+
+# Check Tesla every 30 seconds using a 10-day SMA
+python main.py --run --stock TSLA --sma 10 --poll-seconds 30
+
+# Use detailed application logging while watching Nvidia
+python main.py --run --stock NVDA --sma 20 --log-level DEBUG
+```
+
+The default runner checks Yahoo Finance every 60 seconds. Override the
+polling delay when needed:
+
+```bash
+python main.py --run --stock AAPL --sma 20 --poll-seconds 30
+```
+
+The command stays active and checks repeatedly. Press `Ctrl+C` once to stop
+the runner cleanly. A notification is printed only when the simulated
+position changes:
+
+```text
+2026-09-20 10:15:00 | AAPL | BUY | price=182.4200 | SMA(20)=184.0100
+2026-09-20 11:02:00 | AAPL | SELL | price=185.1100 | SMA(20)=184.2200
+```
+
+`BUY` and `SELL` are notifications, not real orders. The runner remembers its
+simulated position only while that process is running. Starting it again
+starts with no open simulated position. The runner uses daily closing prices
+to calculate the selected SMA and the latest configured intraday interval for
+the current price.
+
+Runner notifications are also appended to
+`output/AAPL/AAPL_RunnerLog.txt`. Stop the runner with `Ctrl+C`. The runner
+requires `--sma` and only produces notifications; it never executes trades or
+submits broker orders.
+
 ### Logging Levels
 
 The app supports separate log levels for the project itself and for third-party libraries.
@@ -326,7 +379,7 @@ SMA-v2/
 â”‚   â””â”€â”€ sma.py            # Individual SMA bot logic
 â”œâ”€â”€ tests/
 â”‚   â””â”€â”€ test_core.py      # Focused unit tests
-â””â”€â”€ run/                  # (Future: live trading mode)
+â””â”€â”€ run/                  # Live SMA notification runner
 ```
 
 ### Code map
@@ -381,7 +434,7 @@ wrappers (`Main.py`, `Config.py`, and similar) for older commands and imports.
 
 ## Future Enhancements
 
-- Live trading mode (`--run` flag, currently unimplemented)
+- Live runner mode: Monitor one SMA and print buy/sell notifications
 - Support for additional technical indicators
 - Multi-stock batch evaluation
 - Advanced position sizing strategies
